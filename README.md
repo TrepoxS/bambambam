@@ -13,10 +13,8 @@ O hub mais completo, otimizado e indetectável para **Blox Fruits** no Roblox.
 Copie e cole o comando abaixo no seu executor (Delta, Codex, Wave, Fluxus, Synapse Z, Hydrogen, etc.):
 
 ```lua
-loadstring(game:HttpGet("https://raw.githubusercontent.com/SEU_USUARIO/SEU_REPOSITORIO/main/loader.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/TrepoxS/bambambam/main/loader.lua"))()
 ```
-
-*(Substitua `SEU_USUARIO/SEU_REPOSITORIO` pelo seu usuário e repositório no GitHub)*
 
 ---
 
