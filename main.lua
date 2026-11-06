@@ -1,8 +1,8 @@
 -- ============================================================================
--- [ZIRO HUB] - SECURE GATEWAY & DRM ENGINE
+-- [ZIRO HUB] - SECURE GATEWAY & DRM ENGINE v2.0
 -- Private Release for RIOT | Blox Fruits Core
 -- Universal Compatibility: PC (Solara, Wave) & Mobile (Delta, Codex, Hydrogen, Fluxus)
--- Auto-Save Key | Autonomous SHA-256 Signature | Pure Luau Bit32 DRM
+-- Auto-Validation em Server Hop | Zero Acao Humana | Pure Luau Bit32 DRM
 -- ============================================================================
 
 local SECRET_SALT = "ZIRO_HUB_RIOT_SECRET_SALT_2026"
@@ -279,27 +279,101 @@ local function launchCoreScript()
 end
 
 -- ============================================================================
--- AUTO-LOAD SAVED KEY (BYPASS PROMPT IF ALREADY ACTIVATED)
+-- PERSISTENT KEY ENGINE & SERVER HOP SYNCHRONIZATION
 -- ============================================================================
-local savedKeyValid = false
-pcall(function()
-    if readfile and isfile and isfile(SAVE_FILE_NAME) then
-        local saved = readfile(SAVE_FILE_NAME)
-        if saved and saved ~= "" then
-            local ok, _ = validateKey(saved)
-            if ok then
-                savedKeyValid = true
-                print("[Ziro Hub] Chave autenticada do cache local! Iniciando script...")
-                task.spawn(launchCoreScript)
+local function retrieveLastKey()
+    local key = nil
+
+    -- 1. Tentativa via memoria global persistente (getgenv / shared)
+    pcall(function()
+        if getgenv and getgenv()._ZIRO_ACTIVE_KEY and type(getgenv()._ZIRO_ACTIVE_KEY) == "string" then
+            key = getgenv()._ZIRO_ACTIVE_KEY
+        elseif shared and shared._ZIRO_ACTIVE_KEY and type(shared._ZIRO_ACTIVE_KEY) == "string" then
+            key = shared._ZIRO_ACTIVE_KEY
+        end
+    end)
+    if key and key ~= "" then return key:gsub("%s+", ""):upper() end
+
+    -- 2. Tentativa direta via readfile (sem dependencia de isfile)
+    pcall(function()
+        if readfile then
+            local content = readfile(SAVE_FILE_NAME)
+            if content and type(content) == "string" and content ~= "" then
+                key = content
             end
         end
-    end
-end)
+    end)
+    if key and key ~= "" then return key:gsub("%s+", ""):upper() end
 
-if savedKeyValid then return end
+    -- 3. Fallback com isfile se existir no executor
+    pcall(function()
+        if isfile and isfile(SAVE_FILE_NAME) and readfile then
+            local content = readfile(SAVE_FILE_NAME)
+            if content and type(content) == "string" and content ~= "" then
+                key = content
+            end
+        end
+    end)
+
+    if key and key ~= "" then
+        return key:gsub("%s+", ""):upper()
+    end
+    return nil
+end
+
+local function persistKey(validKey)
+    local cleanKey = validKey:gsub("%s+", ""):upper()
+
+    -- Salva na sessao em memoria
+    pcall(function()
+        if getgenv then getgenv()._ZIRO_ACTIVE_KEY = cleanKey end
+        if shared then shared._ZIRO_ACTIVE_KEY = cleanKey end
+    end)
+
+    -- Salva no disco do executor
+    pcall(function()
+        if writefile then
+            writefile(SAVE_FILE_NAME, cleanKey)
+        end
+    end)
+
+    -- Propagacao automatica para o proximo servidor via queue_on_teleport
+    pcall(function()
+        local qot = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+        if qot then
+            qot('pcall(function() if getgenv then getgenv()._ZIRO_ACTIVE_KEY = "' .. cleanKey .. '" end end)')
+        end
+    end)
+end
+
+-- ============================================================================
+-- AUTO-VALIDACAO DA ULTIMA CHAVE (ZERO ACAO HUMANA EM SERVER HOP)
+-- ============================================================================
+local candidateKey = retrieveLastKey()
+local initialErrorMsg = nil
+
+if candidateKey and candidateKey ~= "" then
+    local ok, msg = validateKey(candidateKey)
+    if ok then
+        -- Chave valida: desbloqueia imediatamente e propaga para o proximo hop
+        persistKey(candidateKey)
+        print("[Ziro Hub] Ultima chave autenticada automaticamente! Entrando no script...")
+        task.spawn(launchCoreScript)
+        return
+    else
+        -- Chave expirada ou invalida: impede a entrada do usuario
+        initialErrorMsg = "Ultima chave expirada ou invalida. Digite uma nova chave."
+        pcall(function()
+            if delfile then delfile(SAVE_FILE_NAME) end
+            if getgenv then getgenv()._ZIRO_ACTIVE_KEY = nil end
+            if shared then shared._ZIRO_ACTIVE_KEY = nil end
+        end)
+    end
+end
 
 -- ============================================================================
 -- ZIRO HUB MODERN DARK PURPLE KEY GATEWAY UI
+-- (Apenas exibida se nao houver chave valida ou se estiver expirada)
 -- ============================================================================
 local function createKeyGatewayUI()
     local existing = getSafeGuiParent():FindFirstChild("ZiroKeyGateway")
@@ -383,8 +457,8 @@ local function createKeyGatewayUI()
     StatusLabel.Position = UDim2.new(0, 15, 0, 138)
     StatusLabel.BackgroundTransparency = 1
     StatusLabel.Font = Enum.Font.Gotham
-    StatusLabel.Text = "Aguardando chave de acesso..."
-    StatusLabel.TextColor3 = Color3.fromRGB(170, 150, 200)
+    StatusLabel.Text = initialErrorMsg or "Aguardando chave de acesso..."
+    StatusLabel.TextColor3 = if initialErrorMsg then Color3.fromRGB(255, 80, 80) else Color3.fromRGB(170, 150, 200)
     StatusLabel.TextSize = 11
     StatusLabel.Parent = Main
 
@@ -462,11 +536,8 @@ local function createKeyGatewayUI()
             StatusLabel.Text = msg .. "! Iniciando bot..."
             StatusLabel.TextColor3 = Color3.fromRGB(80, 240, 120)
 
-            pcall(function()
-                if writefile then
-                    writefile(SAVE_FILE_NAME, inputKey)
-                end
-            end)
+            -- Salva chave em cache, memoria e fila de teleporte para server hop automatico
+            persistKey(inputKey)
 
             task.wait(0.5)
             local tween = TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
