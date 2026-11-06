@@ -1,8 +1,8 @@
 -- ============================================================================
--- [ZIRO HUB] - SECURE GATEWAY & DRM ENGINE v2.0
+-- [ZIRO HUB] - SECURE GATEWAY & DRM ENGINE v2.1
 -- Private Release for RIOT | Blox Fruits Core
 -- Universal Compatibility: PC (Solara, Wave) & Mobile (Delta, Codex, Hydrogen, Fluxus)
--- Auto-Validation em Server Hop | Zero Acao Humana | Pure Luau Bit32 DRM
+-- Verificacao Ativa Obrigatoria em Cada Sessao / Server Hop | Zero Acao Humana
 -- ============================================================================
 
 local SECRET_SALT = "ZIRO_HUB_RIOT_SECRET_SALT_2026"
@@ -12,6 +12,7 @@ local SAVE_FILE_NAME = "ziro_key.txt"
 
 local TweenService = game:GetService("TweenService")
 local CoreGui = game:GetService("CoreGui")
+local StarterGui = game:GetService("StarterGui")
 local Players = game:GetService("Players")
 local localPlayer = Players.LocalPlayer
 
@@ -19,6 +20,16 @@ local function getSafeGuiParent()
     local s, p = pcall(function() return CoreGui end)
     if s and p then return p end
     return localPlayer:WaitForChild("PlayerGui")
+end
+
+local function notifyUser(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title or "Ziro Hub",
+            Text = text or "",
+            Duration = duration or 3
+        })
+    end)
 end
 
 -- ============================================================================
@@ -346,34 +357,42 @@ local function persistKey(validKey)
     end)
 end
 
+local function invalidateKey()
+    pcall(function()
+        if writefile then writefile(SAVE_FILE_NAME, "") end
+        if delfile then delfile(SAVE_FILE_NAME) end
+        if getgenv then getgenv()._ZIRO_ACTIVE_KEY = nil end
+        if shared then shared._ZIRO_ACTIVE_KEY = nil end
+    end)
+end
+
 -- ============================================================================
--- AUTO-VALIDACAO DA ULTIMA CHAVE (ZERO ACAO HUMANA EM SERVER HOP)
+-- VERIFICACAO ATIVA OBRIGATORIA A CADA INICIALIZACAO / SERVER HOP
+-- (Testa primeiramente a ultima chave usada para manter o fluxo continuo)
 -- ============================================================================
 local candidateKey = retrieveLastKey()
 local initialErrorMsg = nil
 
 if candidateKey and candidateKey ~= "" then
+    -- Executa obrigatoriamente a validacao criptografica toda vez
     local ok, msg = validateKey(candidateKey)
     if ok then
-        -- Chave valida: desbloqueia imediatamente e propaga para o proximo hop
+        -- Chave 100% valida: preserva e avanca no fluxo automatico sem parada
         persistKey(candidateKey)
-        print("[Ziro Hub] Ultima chave autenticada automaticamente! Entrando no script...")
+        notifyUser("Ziro Hub | Autenticacao", "Chave ativa autorizada! Carregando sistemas...", 3)
         task.spawn(launchCoreScript)
         return
     else
-        -- Chave expirada ou invalida: impede a entrada do usuario
+        -- Chave expirada, corrompida ou revogada: impede a entrada do usuario
+        invalidateKey()
         initialErrorMsg = "Ultima chave expirada ou invalida. Digite uma nova chave."
-        pcall(function()
-            if delfile then delfile(SAVE_FILE_NAME) end
-            if getgenv then getgenv()._ZIRO_ACTIVE_KEY = nil end
-            if shared then shared._ZIRO_ACTIVE_KEY = nil end
-        end)
+        notifyUser("Ziro Hub | Acesso Bloqueado", initialErrorMsg, 4)
     end
 end
 
 -- ============================================================================
 -- ZIRO HUB MODERN DARK PURPLE KEY GATEWAY UI
--- (Apenas exibida se nao houver chave valida ou se estiver expirada)
+-- (Exibida caso nao haja chave salva ou se a ultima chave estiver expirada)
 -- ============================================================================
 local function createKeyGatewayUI()
     local existing = getSafeGuiParent():FindFirstChild("ZiroKeyGateway")
